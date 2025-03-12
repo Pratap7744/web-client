@@ -1,67 +1,112 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 
 const ReelsSection = ({ reels }) => {
   const [currentReel, setCurrentReel] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoProgress, setVideoProgress] = useState({});
   const videoRefs = useRef([]);
-
-  const pauseAllVideos = () => {
+  
+  // Memoized functions to reduce re-renders
+  const pauseAllVideos = useCallback(() => {
     videoRefs.current.forEach(video => {
       if (video && !video.paused) {
         video.pause();
       }
     });
     setIsPlaying(false);
-  };
+  }, []);
 
-  const handleVideoToggle = (index) => {
+  const handleVideoToggle = useCallback((index) => {
     const video = videoRefs.current[index];
     if (!video) return;
+    
     if (video.paused) {
       pauseAllVideos();
-      video.play();
-      setIsPlaying(true);
+      video.play().then(() => setIsPlaying(true)).catch(() => {});
     } else {
       video.pause();
       setIsPlaying(false);
     }
-  };
+  }, [pauseAllVideos]);
 
-  const updateVideoProgress = () => {
-    const currentVideo = videoRefs.current[currentReel];
-    if (currentVideo) {
-      const progress = (currentVideo.currentTime / currentVideo.duration) * 100;
-      setVideoProgress(prev => ({ ...prev, [currentReel]: progress }));
-    }
-  };
-
-  useEffect(() => {
+  const updateVideoProgress = useCallback(() => {
     const video = videoRefs.current[currentReel];
     if (video) {
-      video.addEventListener('timeupdate', updateVideoProgress);
-      pauseAllVideos();
-      return () => video.removeEventListener('timeupdate', updateVideoProgress);
+      const progress = (video.currentTime / video.duration) * 100;
+      setVideoProgress(prev => {
+        // Only update if value changed significantly (reduces state updates)
+        if (Math.abs((prev[currentReel] || 0) - progress) > 1) {
+          return { ...prev, [currentReel]: progress };
+        }
+        return prev;
+      });
     }
   }, [currentReel]);
 
-  const handlePrevReel = () => {
+  // Navigation functions
+  const handlePrevReel = useCallback(() => {
     pauseAllVideos();
     setCurrentReel(prev => (prev === 0 ? reels.length - 1 : prev - 1));
-  };
+  }, [pauseAllVideos, reels.length]);
 
-  const handleNextReel = () => {
+  const handleNextReel = useCallback(() => {
     pauseAllVideos();
     setCurrentReel(prev => (prev === reels.length - 1 ? 0 : prev + 1));
-  };
+  }, [pauseAllVideos, reels.length]);
 
-  const handleVideoEnd = (index) => {
+  // Video ended handler
+  const handleVideoEnd = useCallback((index) => {
     const video = videoRefs.current[index];
     if (video) {
       video.currentTime = 0;
-      video.play();
+      video.play().catch(() => {});
     }
-  };
+  }, []);
+
+  // Setup event listeners
+  useEffect(() => {
+    const video = videoRefs.current[currentReel];
+    if (!video) return;
+    
+    // Optimize by using a throttled version of updateVideoProgress
+    const throttledUpdate = () => {
+      if (!video.throttleTimer) {
+        video.throttleTimer = setTimeout(() => {
+          updateVideoProgress();
+          video.throttleTimer = null;
+        }, 250); // Update progress at most every 250ms
+      }
+    };
+    
+    video.addEventListener('timeupdate', throttledUpdate);
+    
+    // Preload current video
+    if (video.readyState < 3) {
+      video.load();
+    }
+    
+    // Cleanup function
+    return () => {
+      video.removeEventListener('timeupdate', throttledUpdate);
+      clearTimeout(video.throttleTimer);
+    };
+  }, [currentReel, updateVideoProgress]);
+
+  // Preload next/previous videos with low priority
+  useEffect(() => {
+    const nextIndex = (currentReel + 1) % reels.length;
+    const nextVideo = videoRefs.current[nextIndex];
+    
+    if (nextVideo && nextVideo.readyState < 1) {
+      nextVideo.preload = "metadata";
+      // Delayed full preload to not compete with current video resources
+      const timer = setTimeout(() => {
+        nextVideo.preload = "auto";
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [currentReel, reels.length]);
 
   return (
     <section id="reels" className="py-16 px-4 bg-gray-900 text-white">
@@ -75,26 +120,26 @@ const ReelsSection = ({ reels }) => {
           {reels.map((reel, index) => (
             <div
               key={reel.id}
-              className={`transition-opacity duration-500 ${
-                index === currentReel ? 'block' : 'hidden'
-              }`}
+              className={index === currentReel ? 'block' : 'hidden'}
             >
               <div className="relative pb-4">
-                <div className="relative">
+                <div className="relative bg-gray-800 rounded-lg overflow-hidden">
                   <video
                     ref={el => videoRefs.current[index] = el}
                     src={reel.video}
                     poster={reel.thumbnail}
-                    className="w-full h-[90vh] rounded-lg shadow-lg"
+                    className="w-full h-[90vh] rounded-lg shadow-lg object-cover"
                     playsInline
+                    preload={index === currentReel ? "auto" : "none"}
                     loop
                     onEnded={() => handleVideoEnd(index)}
                     onClick={() => handleVideoToggle(index)}
                   />
+                  
                   <button
                     onClick={() => handleVideoToggle(index)}
                     className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity duration-300"
-                    aria-label={isPlaying ? "Pause video" : "Play video"}
+                    aria-label={isPlaying && currentReel === index ? "Pause video" : "Play video"}
                   >
                     {isPlaying && currentReel === index ? (
                       <div className="bg-white/80 rounded-full p-3">
@@ -113,7 +158,7 @@ const ReelsSection = ({ reels }) => {
                   </button>
                   <div className="w-full bg-gray-700 h-1 mt-2 rounded-full overflow-hidden">
                     <div
-                      className="bg-pink-500 h-full transition-all duration-300"
+                      className="bg-pink-500 h-full"
                       style={{ width: `${videoProgress[index] || 0}%` }}
                     ></div>
                   </div>
@@ -121,6 +166,8 @@ const ReelsSection = ({ reels }) => {
               </div>
             </div>
           ))}
+
+          {/* Navigation controls */}
           <button
             onClick={handlePrevReel}
             className="absolute inset-y-1/2 left-2 sm:left-4 bg-pink-500 hover:bg-pink-600 text-white w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110"
@@ -139,6 +186,8 @@ const ReelsSection = ({ reels }) => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
+          
+          {/* Pagination dots */}
           <div className="flex justify-center gap-2 mt-4">
             {reels.map((_, index) => (
               <button
@@ -147,7 +196,7 @@ const ReelsSection = ({ reels }) => {
                   pauseAllVideos();
                   setCurrentReel(index);
                 }}
-                className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                className={`w-3 h-3 rounded-full ${
                   index === currentReel ? 'bg-pink-500 scale-125' : 'bg-white/50'
                 }`}
                 aria-label={`Go to reel ${index + 1}`}
