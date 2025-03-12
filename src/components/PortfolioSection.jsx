@@ -13,7 +13,7 @@ const PortfolioSection = ({ portfolioItems }) => {
 
     const animate = () => {
       if (!isAnimationPaused && !selectedItem && carousel) {
-        progress += 0.5;
+        progress += 1.5;
         if (progress >= carousel.scrollWidth / 2) {
           progress = 0;
         }
