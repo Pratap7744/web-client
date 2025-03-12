@@ -11,7 +11,7 @@ const HeroSection = ({ heroImages }) => {
   }, [heroImages.length]);
 
   return (
-    <section id="home" className="relative h-[96vh] w-full bg-black overflow-hidden">
+    <section id="home" className="relative h-[90vh] w-full bg-black overflow-hidden">
       <div className="relative h-full w-full">
         {heroImages.map((image, index) => (
           <div
