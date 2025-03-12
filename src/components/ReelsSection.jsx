@@ -4,7 +4,19 @@ const ReelsSection = ({ reels }) => {
   const [currentReel, setCurrentReel] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoProgress, setVideoProgress] = useState({});
+  const [showThumbnails, setShowThumbnails] = useState({});
   const videoRefs = useRef([]);
+  
+  // Initialize thumbnail visibility for all videos, with mobile detection
+  useEffect(() => {
+    const initialThumbnailState = {};
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    reels.forEach((_, index) => {
+      initialThumbnailState[index] = !isMobile;
+    });
+    setShowThumbnails(initialThumbnailState);
+  }, [reels]);
   
   // Memoized functions to reduce re-renders
   const pauseAllVideos = useCallback(() => {
@@ -16,12 +28,15 @@ const ReelsSection = ({ reels }) => {
     setIsPlaying(false);
   }, []);
 
-  const handleVideoToggle = useCallback((index) => {
+  const handleVideoToggle = useCallback((index, e) => {
+    if (e) e.stopPropagation();
+    
     const video = videoRefs.current[index];
     if (!video) return;
     
     if (video.paused) {
       pauseAllVideos();
+      setShowThumbnails(prev => ({...prev, [index]: false}));
       video.play().then(() => setIsPlaying(true)).catch(() => {});
     } else {
       video.pause();
@@ -34,7 +49,6 @@ const ReelsSection = ({ reels }) => {
     if (video) {
       const progress = (video.currentTime / video.duration) * 100;
       setVideoProgress(prev => {
-        // Only update if value changed significantly (reduces state updates)
         if (Math.abs((prev[currentReel] || 0) - progress) > 1) {
           return { ...prev, [currentReel]: progress };
         }
@@ -44,69 +58,91 @@ const ReelsSection = ({ reels }) => {
   }, [currentReel]);
 
   // Navigation functions
-  const handlePrevReel = useCallback(() => {
+  const handlePrevReel = useCallback((e) => {
+    if (e) e.stopPropagation();
+    
     pauseAllVideos();
-    setCurrentReel(prev => (prev === 0 ? reels.length - 1 : prev - 1));
-  }, [pauseAllVideos, reels.length]);
+    const prevIndex = currentReel === 0 ? reels.length - 1 : currentReel - 1;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile) {
+      setShowThumbnails(prev => ({...prev, [prevIndex]: true}));
+    }
+    setCurrentReel(prevIndex);
+  }, [pauseAllVideos, reels.length, currentReel]);
 
-  const handleNextReel = useCallback(() => {
+  const handleNextReel = useCallback((e) => {
+    if (e) e.stopPropagation();
+    
     pauseAllVideos();
-    setCurrentReel(prev => (prev === reels.length - 1 ? 0 : prev + 1));
-  }, [pauseAllVideos, reels.length]);
+    const nextIndex = currentReel === reels.length - 1 ? 0 : currentReel + 1;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile) {
+      setShowThumbnails(prev => ({...prev, [nextIndex]: true}));
+    }
+    setCurrentReel(nextIndex);
+  }, [pauseAllVideos, reels.length, currentReel]);
 
   // Video ended handler
   const handleVideoEnd = useCallback((index) => {
     const video = videoRefs.current[index];
     if (video) {
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (!isMobile) {
+        setShowThumbnails(prev => ({...prev, [index]: true}));
+      }
       video.currentTime = 0;
       video.play().catch(() => {});
     }
   }, []);
+
+  // Handle canplay event
+  const handleCanPlay = useCallback((index) => {
+    if (index === currentReel && isPlaying) {
+      setShowThumbnails(prev => ({...prev, [index]: false}));
+    }
+  }, [currentReel, isPlaying]);
 
   // Setup event listeners
   useEffect(() => {
     const video = videoRefs.current[currentReel];
     if (!video) return;
     
-    // Optimize by using a throttled version of updateVideoProgress
     const throttledUpdate = () => {
       if (!video.throttleTimer) {
         video.throttleTimer = setTimeout(() => {
           updateVideoProgress();
           video.throttleTimer = null;
-        }, 250); // Update progress at most every 250ms
+        }, 250);
       }
     };
     
-    video.addEventListener('timeupdate', throttledUpdate);
+    const canPlayHandler = () => handleCanPlay(currentReel);
     
-    // Preload current video
+    video.addEventListener('timeupdate', throttledUpdate);
+    video.addEventListener('canplay', canPlayHandler);
+    
     if (video.readyState < 3) {
       video.load();
     }
     
-    // Cleanup function
     return () => {
       video.removeEventListener('timeupdate', throttledUpdate);
+      video.removeEventListener('canplay', canPlayHandler);
       clearTimeout(video.throttleTimer);
     };
-  }, [currentReel, updateVideoProgress]);
+  }, [currentReel, updateVideoProgress, handleCanPlay]);
 
-  // Preload next/previous videos with low priority
-  useEffect(() => {
-    const nextIndex = (currentReel + 1) % reels.length;
-    const nextVideo = videoRefs.current[nextIndex];
+  // Function to navigate to a specific reel
+  const goToReel = useCallback((index, e) => {
+    if (e) e.stopPropagation();
     
-    if (nextVideo && nextVideo.readyState < 1) {
-      nextVideo.preload = "metadata";
-      // Delayed full preload to not compete with current video resources
-      const timer = setTimeout(() => {
-        nextVideo.preload = "auto";
-      }, 1000);
-      
-      return () => clearTimeout(timer);
+    pauseAllVideos();
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile) {
+      setShowThumbnails(prev => ({...prev, [index]: true}));
     }
-  }, [currentReel, reels.length]);
+    setCurrentReel(index);
+  }, [pauseAllVideos]);
 
   return (
     <section id="reels" className="py-16 px-4 bg-gray-900 text-white">
@@ -124,21 +160,32 @@ const ReelsSection = ({ reels }) => {
             >
               <div className="relative pb-4">
                 <div className="relative bg-gray-800 rounded-lg overflow-hidden">
+                  {/* Custom thumbnail solution */}
+                  {showThumbnails[index] && (
+                    <div className="absolute inset-0 z-10 bg-gray-800">
+                      <img 
+                        src={reel.thumbnail} 
+                        alt={`Thumbnail for reel ${index + 1}`}
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                    </div>
+                  )}
+                  
                   <video
                     ref={el => videoRefs.current[index] = el}
                     src={reel.video}
-                    poster={reel.thumbnail}
                     className="w-full h-[90vh] rounded-lg shadow-lg object-cover"
                     playsInline
-                    preload={index === currentReel ? "auto" : "none"}
+                    preload={index === currentReel ? "auto" : "metadata"}
                     loop
+                    muted={false}
                     onEnded={() => handleVideoEnd(index)}
-                    onClick={() => handleVideoToggle(index)}
+                    onClick={(e) => handleVideoToggle(index, e)}
                   />
                   
                   <button
-                    onClick={() => handleVideoToggle(index)}
-                    className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity duration-300"
+                    onClick={(e) => handleVideoToggle(index, e)}
+                    className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity duration-300 z-20"
                     aria-label={isPlaying && currentReel === index ? "Pause video" : "Play video"}
                   >
                     {isPlaying && currentReel === index ? (
@@ -167,35 +214,32 @@ const ReelsSection = ({ reels }) => {
             </div>
           ))}
 
-          {/* Navigation controls */}
-          <button
-            onClick={handlePrevReel}
-            className="absolute inset-y-1/2 left-2 sm:left-4 bg-pink-500 hover:bg-pink-600 text-white w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110"
+          {/* Navigation controls - note the z-30 to ensure they're above all other elements */}
+          <div 
+            onClick={(e) => handlePrevReel(e)}
+            className="absolute inset-y-1/2 left-2 sm:left-4 bg-pink-500 hover:bg-pink-600 text-white w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110 z-30 cursor-pointer"
             aria-label="Previous reel"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-          </button>
-          <button
-            onClick={handleNextReel}
-            className="absolute inset-y-1/2 right-2 sm:right-4 bg-pink-500 hover:bg-pink-600 text-white w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110"
+          </div>
+          <div
+            onClick={(e) => handleNextReel(e)}
+            className="absolute inset-y-1/2 right-2 sm:right-4 bg-pink-500 hover:bg-pink-600 text-white w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110 z-30 cursor-pointer"
             aria-label="Next reel"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-          </button>
+          </div>
           
           {/* Pagination dots */}
-          <div className="flex justify-center gap-2 mt-4">
+          <div className="flex justify-center gap-2 mt-4 z-30 relative">
             {reels.map((_, index) => (
               <button
                 key={index}
-                onClick={() => {
-                  pauseAllVideos();
-                  setCurrentReel(index);
-                }}
+                onClick={(e) => goToReel(index, e)}
                 className={`w-3 h-3 rounded-full ${
                   index === currentReel ? 'bg-pink-500 scale-125' : 'bg-white/50'
                 }`}
