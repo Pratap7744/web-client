@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-
+import { Play } from 'lucide-react';
 const ReelsSection = ({ reels }) => {
   const [currentReel, setCurrentReel] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -183,26 +183,33 @@ const ReelsSection = ({ reels }) => {
                     onClick={(e) => handleVideoToggle(index, e)}
                   />
                   
-                  <button
+                  {/* Play Indicator (shown when paused) */}
+                  {(!isPlaying || currentReel !== index) && (
+                    <div 
                     onClick={(e) => handleVideoToggle(index, e)}
-                    className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity duration-300 z-20"
-                    aria-label={isPlaying && currentReel === index ? "Pause video" : "Play video"}
+                    className="absolute inset-0 flex items-center justify-center z-20 cursor-pointer"
                   >
-                    {isPlaying && currentReel === index ? (
-                      <div className="bg-white/80 rounded-full p-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-pink-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6" />
+                    <div className="bg-black/40 rounded-full p-5 shadow-lg transform transition-transform hover:scale-105 flex flex-col items-center justify-center">
+                      <Play className="h-12 w-12 text-white" />
+                      <div className="text-white text-center mt-2 font-medium text-sm">Tap to play</div>
+                    </div>
+                  </div>
+                  )}
+                  
+                  {/* Pause Indicator (only shown briefly when playing) */}
+                  {isPlaying && currentReel === index && (
+                    <div 
+                      onClick={(e) => handleVideoToggle(index, e)}
+                      className="absolute inset-0 flex items-center justify-center z-20 cursor-pointer opacity-0 hover:opacity-100 transition-opacity duration-300"
+                    >
+                      <div className="bg-black/40 rounded-full p-5 shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-white" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
                         </svg>
                       </div>
-                    ) : (
-                      <div className="bg-white/80 rounded-full p-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-pink-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                    )}
-                  </button>
+                    </div>
+                  )}
+                  
                   <div className="w-full bg-gray-700 h-1 mt-2 rounded-full overflow-hidden">
                     <div
                       className="bg-pink-500 h-full"
@@ -214,7 +221,7 @@ const ReelsSection = ({ reels }) => {
             </div>
           ))}
 
-          {/* Navigation controls - note the z-30 to ensure they're above all other elements */}
+          {/* Navigation controls */}
           <div 
             onClick={(e) => handlePrevReel(e)}
             className="absolute inset-y-1/2 left-2 sm:left-4 bg-pink-500 hover:bg-pink-600 text-white w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110 z-30 cursor-pointer"
